@@ -15,13 +15,34 @@
 | A3   | Stress       | 5     | 2.16  | 407.64 ms | 934.97 ms | 0.00% | 100.00% |
 | A4   | Spike        | 5     | 1.00  | 403.26 ms | 1043.90 ms | 0.00% | 100.00% |
 | A5   | Soak         | 2     | 0.93  | 712.82 ms | 2215.40 ms | 0.00% | 100.00% |
+
 ## Part B
-1.
-2.
-3.
-4.
-5.
-6.
-7.
-8.
-9.
+1. See the results A1-A5 on the table above.
+
+2. Each virtual user sends one request, waits for the answer (about 0.32 s on average), then sleeps 1 s, so one iteration takes about 1.39 s. One VU can therefore make only about 1 / 1.39 ≈ 0.72 requests per second, and 5 VUs make about 3.6 req/s (measured 3.59 req/s). The rate could only reach 5 req/s if the response time and the think time were both zero.
+
+3. No. The load went up from 1.33 req/s (3 users) to 2.16 req/s (5 users), about 1.6 times more, but p(95) stayed the same: 406.96 ms in the average-load test and 407.64 ms in the stress test. This means both tests were far inside QuickPizza's operational envelope; the system has plenty of spare capacity at this load, so adding users did not slow it down. To see the response time grow, we would need many more users, which we must not do on a shared public site.
+
+4. When the load jumped from 1 to 5 users at about 30 s, the response time rose a little: in that 10-second window the average went from about 280–345 ms to 352 ms, p(95) to 480 ms, and one request took 1,044 ms (probably a new user opening its first TLS connection). It returned to its earlier level within about 10–20 seconds (average 319 ms, p(95) 379 ms at 50–60 s), even before the load dropped back to 1 user.
+
+5. No. The average response time was about 420 ms in both the first two minutes and the last two minutes of the 10-minute hold, and the error rate stayed at 0% for the whole run. There were short slow periods (up to 2.2 s) spread randomly across the run, but they did not grow over time, so they look like network or shared-server noise rather than degradation. A soak test of several hours could reveal a memory leak, where the server slowly uses more memory until it slows down or crashes. Other examples are connections or file handles that are never released, or logs and caches that grow until the disk fills.
+
+6. The average hides the slowest users. In the soak test, the average was 403 ms but p(95) was 713 ms and the slowest request took 2.2 s, so a few slow requests can be lost inside a good-looking average. p(95) tells us what 95% of users actually experienced, which is closer to what a requirement promises. In Step 0.7, the median was only 382 ms while p(95) was 1.32 s, and only the p(95) threshold caught the problem.
+
+7. (1) Network: our requests travel over the public internet from Thailand to QuickPizza's servers, so the numbers include network delay and its random variation. In a lab, the load generator sits next to the system on a fast local network. (2) Shared load: QuickPizza is used by people all over the world at the same time, so other users' traffic affects our results. I saw this in Step 0.7, where the same test failed once (p(95) 1.32 s) and passed a few minutes later (p(95) 431 ms). In a lab, we would be the only users and could control the hardware and configuration.
+
+8. A stress, spike or breakpoint test with hundreds of users is effectively a denial-of-service attack. It can slow down or crash the site for its real users, it costs the owner money, and running it without permission can break the site's terms of use and the law (for example, Thailand's Computer Crime Act). We should only load test systems we own or have written permission to test.
+
+9. Vague requirement: "The LINE app should send messages quickly."
+   Testable requirement: "With 5 users sending messages at the same time for 1 minute, 95% of send-message requests complete within 500 ms, 99% within 1 s, and fewer than 0.5% fail."
+   K6 thresholds:
+   ```javascript
+   export const options = {
+     vus: 5,
+     duration: '1m',
+     thresholds: {
+       http_req_duration: ['p(95)<500', 'p(99)<1000'],
+       http_req_failed: ['rate<0.005'],
+     },
+   };
+   ```
